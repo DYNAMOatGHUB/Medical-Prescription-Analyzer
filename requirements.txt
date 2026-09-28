@@ -1,0 +1,23 @@
+# ─── Image Processing ────────────────────────────────────────────────
+Pillow
+numpy
+
+# ─── Vision-Language Model ───────────────────────────────────────────
+ollama
+pydantic
+
+# ─── Backend ─────────────────────────────────────────────────────────
+fastapi
+uvicorn[standard]
+python-multipart
+aiofiles
+
+# ─── Frontend ────────────────────────────────────────────────────────
+streamlit
+plotly
+pandas
+
+# ─── Utilities ───────────────────────────────────────────────────────
+python-dotenv
+loguru
+httpx
