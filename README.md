@@ -14,26 +14,70 @@ The **Medical Prescription Analyzer** solves a critical healthcare challenge: de
 
 This project is tailored for pharmacists, healthcare providers, and patients to minimize medication errors and streamline digital health record keeping.
 
-## ✨ Key Features
-- **Accurate Handwriting Recognition:** Powered by Qwen2.5-VL via Ollama, capable of interpreting difficult clinical handwriting.
-- **Structured Data Extraction:** Automatically parses unstructured images into standard JSON format with distinct fields for medicine name, dosage, quantity, frequency, route, and doctor's instructions.
-- **FastAPI Backend:** A robust, asynchronous API layer for fast inference and easy integration with external services.
-- **Streamlit Dashboard:** An intuitive, user-friendly frontend to upload prescriptions and view extracted data instantly.
-- **Local & Secure:** Fully runs on local hardware using Ollama, ensuring that sensitive patient health information (PHI) never leaves your device.
+---
+
+## 🧠 Deep Learning at the Core
+
+**Yes, this is an Applied Deep Learning project!** 
+Unlike basic tutorials that teach you to build simple neural networks from scratch, this project focuses on **Multimodal AI Engineering**—the art of deploying massive, pre-trained Deep Learning models to solve complex, real-world problems.
+
+### How the Deep Learning Works Here:
+1. **Multimodal Vision-Language Modeling (VLM):** The core engine is **Qwen2.5-VL**, a sophisticated deep learning model that bridges Computer Vision (CV) and Natural Language Processing (NLP).
+2. **Visual Encoding (CV):** When a prescription image is uploaded, the model's Vision Transformer (ViT) layers break the image down into patches, extracting visual features like the strokes of handwritten text.
+3. **Language Decoding (NLP):** These visual features are passed into a Large Language Model (LLM) backbone. The LLM understands the medical context (e.g., that "1-0-1" means morning and night) and translates the visual scribbles into coherent textual data.
+4. **Zero-Shot / Few-Shot Prompting:** The model is heavily guided by optimized prompt engineering to bypass traditional OCR limitations. Instead of just reading text line-by-line, the deep learning model actually *understands* the layout and semantics of a prescription, structuring it directly into JSON.
 
 ---
 
-## 🏗️ Architecture
+## ✨ Key Features
+- **Applied Deep Learning:** Uses state-of-the-art VLM inference via Ollama.
+- **Context-Aware Handwriting Recognition:** Instead of raw OCR, the model infers clinical handwriting by understanding medical context.
+- **Structured Data Extraction:** Automatically parses unstructured images into standard JSON format.
+- **FastAPI Backend & Streamlit Frontend:** A complete full-stack wrapper around the deep learning engine.
+- **Local & Secure Data Processing:** AI inference runs entirely on local hardware, ensuring patient data privacy.
+
+---
+
+## 🏗️ Detailed Architecture & Deep Learning Pipeline
+
+The project follows an **Inference Pipeline Architecture**, separating the heavy Deep Learning computation from the client-facing UI.
 
 ```mermaid
-graph LR
-    A[Prescription Image] -->|Upload| B(Streamlit Frontend)
-    B -->|POST /predict| C(FastAPI Backend)
-    C -->|Image + Prompt| D[Ollama Local VLM]
-    D -->|Inference Qwen2.5-VL| C
-    C -->|Structured JSON| B
-    B -->|Render UI| E[Extracted Data View]
+graph TD
+    subgraph Client Layer
+        A[User Uploads Prescription Image] --> B[Streamlit Frontend]
+    end
+
+    subgraph API Layer
+        B -- POST /predict --> C[FastAPI Server]
+        C --> D[Image Preprocessing & Prompt Assembly]
+    end
+
+    subgraph Deep Learning Engine
+        D -- Image + Contextual Prompt --> E[Ollama: Local Inference Server]
+        E --> F[Qwen2.5-VL Model]
+        F -->|Vision Transformer| G[Extract Visual Features]
+        G -->|LLM Backbone| H[Semantic Understanding & Text Generation]
+        H --> I[Raw JSON Output]
+    end
+
+    subgraph Post-Processing
+        I --> J[Pydantic Schema Validation]
+        J -- Clean Structured Data --> C
+        C -- API Response --> B
+    end
+
+    B --> K[Display Extracted Medical Data]
 ```
+
+### The Workflow Pipeline
+1. **Ingestion:** The user uploads a JPEG/PNG image of a prescription via the Streamlit UI.
+2. **API Routing:** The image is sent to the FastAPI backend, which handles asynchronous requests and validates the payload.
+3. **Prompt Engineering:** The backend constructs a highly specific prompt instructing the VLM to act as a medical transcriptionist and output *only* valid JSON.
+4. **VLM Inference (The Deep Learning Step):** The image and prompt are piped into the local Ollama instance running Qwen2.5-VL. The model performs billions of matrix multiplications, "reading" the visual tokens and generating contextual text tokens.
+5. **Schema Validation:** The raw output is caught by FastAPI and validated using Pydantic to ensure it meets the strict schema requirements (e.g., ensuring `medicines` is a list, `dosage` is a string).
+6. **Rendering:** The validated JSON is sent back to the Streamlit UI and presented in a clean, readable dashboard.
+
 
 ---
 
