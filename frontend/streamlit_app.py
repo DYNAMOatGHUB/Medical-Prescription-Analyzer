@@ -276,115 +276,110 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Upload
+# Upload & Main Layout
 # ──────────────────────────────────────────────────────────────────────────────
 
-col_upload, col_preview = st.columns([1, 1], gap="large")
+st.markdown('<div class="section-title">📤 Upload Prescription</div>', unsafe_allow_html=True)
+uploaded = st.file_uploader(
+    "Drag & drop or browse",
+    type=["jpg", "jpeg", "png", "bmp", "tiff", "webp"],
+    label_visibility="collapsed",
+)
 
-with col_upload:
-    st.markdown('<div class="section-title">📤 Upload Prescription</div>', unsafe_allow_html=True)
-    uploaded = st.file_uploader(
-        "Drag & drop or browse",
-        type=["jpg", "jpeg", "png", "bmp", "tiff", "webp"],
-        label_visibility="collapsed",
-    )
-    analyse_btn = st.button("🔬 Analyse Prescription", use_container_width=True, type="primary")
-
-with col_preview:
-    if uploaded:
-        st.markdown('<div class="section-title">🖼️ Preview</div>', unsafe_allow_html=True)
+if uploaded:
+    # Split into Image (Left) and Results (Right) to avoid vertical scrolling
+    col_image, col_results = st.columns([1, 1.5], gap="large")
+    
+    with col_image:
+        st.markdown('<div class="section-title">🖼️ Original Image</div>', unsafe_allow_html=True)
         img = Image.open(uploaded)
-        st.image(img, use_column_width=True)
+        # Display image; Streamlit will scale it to the column width
+        st.image(img, use_container_width=True)
+        analyse_btn = st.button("🔬 Analyse Prescription", use_container_width=True, type="primary")
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Analysis
-# ──────────────────────────────────────────────────────────────────────────────
-
-if analyse_btn:
-    if not uploaded:
-        st.error("Please upload an image first.")
-    elif not backend_ok:
-        st.error("Backend is offline. Start with: `uvicorn app.main:app --reload`")
-    else:
-        with st.spinner("🔬 Running OCR + NLP pipeline …"):
-            uploaded.seek(0)
-            files = {"file": (uploaded.name, uploaded.read(), uploaded.type)}
-            try:
-                t0 = time.perf_counter()
-                response = httpx.post(f"{API_BASE}/predict", files=files, timeout=120)
-                elapsed = round(time.perf_counter() - t0, 2)
-
-                if response.status_code != 200:
-                    st.error(f"Backend error {response.status_code}: {response.text}")
-                    st.stop()
-
-                data = response.json()
-
-            except httpx.TimeoutException:
-                st.error("Request timed out (120 s). The model might still be loading — try again.")
-                st.stop()
-            except Exception as exc:
-                st.error(f"Unexpected error: {exc}")
-                st.stop()
-
-        st.success(f"✅ Analysed in **{data.get('processing_time_seconds', elapsed)} s**")
-        st.divider()
-
-        # ── Summary metrics ────────────────────────────────────────────
-        prescription = data.get("prescription", {})
-        medicines = prescription.get("medicines", [])
-        doctor_notes = prescription.get("doctor_notes")
-
-        n_drugs = len(medicines)
-
-        m1, m2 = st.columns(2)
-        m1.markdown(
-            f'<div class="metric-card">'
-            f'<div class="label">Medicines Extracted</div>'
-            f'<div class="value">{n_drugs}</div>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
-        
-        has_notes = "Yes" if doctor_notes else "No"
-        m2.markdown(
-            f'<div class="metric-card">'
-            f'<div class="label">Doctor Notes Found</div>'
-            f'<div class="value">{has_notes}</div>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
-
-        st.markdown("")  # spacer
-
-        # ── Results tabs ───────────────────────────────────────────────
-        tab_table, tab_notes, tab_raw = st.tabs([
-            "📋 Structured Table", "📝 Doctor Notes", "🔧 Raw JSON"
-        ])
-
-        # ─ Tab 1: Structured table ─────────────────────────────────────
-        with tab_table:
-            if medicines:
-                df = pd.DataFrame(medicines)
-                # Capitalize column names for display
-                df.columns = [str(c).replace("_", " ").title() for c in df.columns]
-                st.dataframe(df, use_container_width=True, hide_index=True)
+    with col_results:
+        if analyse_btn:
+            if not backend_ok:
+                st.error("Backend is offline. Start with: `uvicorn app.main:app --reload`")
             else:
-                st.info("No structured rows to display.")
+                with st.spinner("🔬 Running OCR + NLP pipeline …"):
+                    uploaded.seek(0)
+                    files = {"file": (uploaded.name, uploaded.read(), uploaded.type)}
+                    try:
+                        t0 = time.perf_counter()
+                        response = httpx.post(f"{API_BASE}/predict", files=files, timeout=120)
+                        elapsed = round(time.perf_counter() - t0, 2)
 
-        # ─ Tab 2: Doctor Notes ─────────────────────────────────────────
-        with tab_notes:
-            if doctor_notes:
-                st.markdown('<div class="section-title">Additional Instructions</div>',
-                            unsafe_allow_html=True)
-                st.markdown(f'<div class="ocr-box">{doctor_notes}</div>',
-                            unsafe_allow_html=True)
-            else:
-                st.warning("No additional notes were extracted from this prescription.")
+                        if response.status_code != 200:
+                            st.error(f"Backend error {response.status_code}: {response.text}")
+                            st.stop()
 
-        # ─ Tab 3: Raw JSON ─────────────────────────────────────────────
-        with tab_raw:
-            st.json(data)
+                        data = response.json()
+
+                    except httpx.TimeoutException:
+                        st.error("Request timed out (120 s). The model might still be loading — try again.")
+                        st.stop()
+                    except Exception as exc:
+                        st.error(f"Unexpected error: {exc}")
+                        st.stop()
+
+                st.success(f"✅ Analysed in **{data.get('processing_time_seconds', elapsed)} s**")
+                
+                # ── Summary metrics ────────────────────────────────────────────
+                prescription = data.get("prescription", {})
+                medicines = prescription.get("medicines", [])
+                doctor_notes = prescription.get("doctor_notes")
+
+                n_drugs = len(medicines)
+
+                m1, m2 = st.columns(2)
+                m1.markdown(
+                    f'<div class="metric-card">'
+                    f'<div class="label">Medicines Extracted</div>'
+                    f'<div class="value">{n_drugs}</div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+                
+                has_notes = "Yes" if doctor_notes else "No"
+                m2.markdown(
+                    f'<div class="metric-card">'
+                    f'<div class="label">Doctor Notes Found</div>'
+                    f'<div class="value">{has_notes}</div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+
+                st.markdown("")  # spacer
+
+                # ── Results tabs ───────────────────────────────────────────────
+                tab_table, tab_notes, tab_raw = st.tabs([
+                    "📋 Structured Table", "📝 Doctor Notes", "🔧 Raw JSON"
+                ])
+
+                # ─ Tab 1: Structured table ─────────────────────────────────────
+                with tab_table:
+                    if medicines:
+                        df = pd.DataFrame(medicines)
+                        # Capitalize column names for display
+                        df.columns = [str(c).replace("_", " ").title() for c in df.columns]
+                        st.dataframe(df, use_container_width=True, hide_index=True)
+                    else:
+                        st.info("No structured rows to display.")
+
+                # ─ Tab 2: Doctor Notes ─────────────────────────────────────────
+                with tab_notes:
+                    if doctor_notes:
+                        st.markdown('<div class="section-title">Additional Instructions</div>',
+                                    unsafe_allow_html=True)
+                        st.markdown(f'<div class="ocr-box">{doctor_notes}</div>',
+                                    unsafe_allow_html=True)
+                    else:
+                        st.warning("No additional notes were extracted from this prescription.")
+
+                # ─ Tab 3: Raw JSON ─────────────────────────────────────────────
+                with tab_raw:
+                    st.json(data)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Footer

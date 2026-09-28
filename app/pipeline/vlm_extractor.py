@@ -18,10 +18,42 @@ from typing import List, Optional
 import json
 import os
 import re
-import base64
+import io
+from PIL import Image, ImageEnhance, ImageFilter
 from pydantic import BaseModel, Field
 import ollama
 from loguru import logger
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Image Preprocessing
+# ──────────────────────────────────────────────────────────────────────────────
+
+def preprocess_image(image_bytes: bytes) -> bytes:
+    """
+    Enhances contrast, sharpness, and converts to grayscale to make handwritten
+    text more legible for the VLM.
+    """
+    try:
+        img = Image.open(io.BytesIO(image_bytes))
+        
+        # Convert to Grayscale
+        img = img.convert("L")
+        
+        # Enhance Contrast
+        enhancer = ImageEnhance.Contrast(img)
+        img = enhancer.enhance(2.0)
+        
+        # Enhance Sharpness
+        sharpness = ImageEnhance.Sharpness(img)
+        img = sharpness.enhance(2.0)
+        
+        # Save back to bytes
+        img_byte_arr = io.BytesIO()
+        img.save(img_byte_arr, format='PNG')
+        return img_byte_arr.getvalue()
+    except Exception as e:
+        logger.warning(f"Image preprocessing failed, using original bytes: {e}")
+        return image_bytes
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Pydantic Schema
@@ -81,25 +113,31 @@ Your ONLY job is to return a single, valid JSON object. No prose, no explanation
 USER_PROMPT = """\
 Carefully examine the attached prescription image.
 
-## STEP 1 — Identify the Grid / Table Structure
+## STEP 1 — Chain of Thought Reasoning
+Before formatting the output, you must write out your thought process inside a <thinking> block.
+In this block, transcribe all the text you can see, line by line. Identify which parts are medicines, which are dosages, and what the grid numbers are. Think about how to map the grid to the M-A-N format.
+
+## STEP 2 — Identify the Grid / Table Structure
 Indian prescriptions typically contain a grid with these columns:
   காலை / Morning | மதியம் / Afternoon | இரவு / Night
   (Hindi: सुबह | दोपहर | रात)
 Each cell contains a number: 1 = take, 0 = skip, ½ = half dose.
 
 ## STEP 2 — Extract Each Medicine Row
+⚠️ CRITICAL RULE: You MUST extract ALL prescribed items as separate entries in the `medicines` list. This includes standard drugs (tablets, syrups), but ALSO includes supplements, vitamins, ORS (Oral Rehydration Salts) sachets, IV drips, ointments, protein powders, and drops. DO NOT bury any prescribed item in `doctor_notes`. If the patient is instructed to take or apply it, it is a medicine.
+
 For EACH medicine, extract:
   • name: The medicine/drug name exactly as written (correct obvious misspellings if confident).
   • dosage: The strength per intake (e.g., "500mg", "250mg/5ml", "1 Tablet"). 
     ⚠️ This is NOT the frequency number from the grid. If no strength is written, use "Not specified".
-  • quantity: Total count dispensed (e.g., "10 tablets", "1 strip"). Use null if not mentioned.
+  • quantity: Total count dispensed (e.g., "10 tablets", "1 strip", "2 sachets"). Use null if not mentioned.
   • period_of_intake: Combine the grid numbers into "M-A-N" format AND translate to English.
     Examples:
       1 under Morning, 0 under Afternoon, 1 under Night → "1-0-1 (Morning, Night)"
       1 under Morning, 1 under Afternoon, 1 under Night → "1-1-1 (Morning, Afternoon, Night)"
       0 under Morning, 0 under Afternoon, 1 under Night → "0-0-1 (Night only)"
       ½ under Morning, 0 under Afternoon, ½ under Night → "½-0-½ (Morning half, Night half)"
-    If no grid exists, describe the frequency in words (e.g., "Twice daily", "Once at night").
+    If no grid exists, describe the frequency in words (e.g., "Twice daily", "Once at night", "Mix in 1L water").
   • route: Oral, Topical, IV, IM, Inhaled, etc. Use null if not mentioned.
   • duration: "5 days", "1 week", etc. Use null if not mentioned.
   • instructions: "After food", "Before sleep", "Empty stomach", etc. Use null if not mentioned.
@@ -113,7 +151,13 @@ If the prescription image shows:
   Syp. Paracetamol 250mg    1  1  1   x 3 days
   Cap. Omeprazole 20mg      1  0  0   x 7 days   (Before food)
 
-Then your output MUST be:
+Then your output MUST follow this exact structure:
+<thinking>
+1. Line 1 says "Tab. Amoxicillin 500mg". Grid is 1 0 1. Duration is 5 days. Instructions say "After food".
+2. Line 2 says "Syp. Paracetamol 250mg". Grid is 1 1 1. Duration is 3 days.
+3. Line 3 says "Cap. Omeprazole 20mg". Grid is 1 0 0. Duration is 7 days. Instructions say "Before food".
+</thinking>
+```json
 {
   "medicines": [
     {"name": "Tab. Amoxicillin", "dosage": "500mg", "quantity": null, "period_of_intake": "1-0-1 (Morning, Night)", "route": "Oral", "duration": "5 days", "instructions": "After food"},
@@ -122,8 +166,9 @@ Then your output MUST be:
   ],
   "doctor_notes": null
 }
+```
 
-Now analyse the attached image and return ONLY a valid JSON object following the exact schema above."""
+Now analyse the attached image, write your <thinking> block, and return the valid JSON object following the exact schema above."""
 
 # ──────────────────────────────────────────────────────────────────────────────
 # JSON Extraction Helper
@@ -161,6 +206,9 @@ def extract_prescription(image_bytes: bytes, mime_type: str = "image/jpeg") -> P
     """
     model_name = os.environ.get("VLM_MODEL", "qwen2.5vl")
     logger.info(f"Calling Local VLM (Ollama/{model_name})...")
+    
+    # Preprocess image to enhance accuracy
+    processed_image_bytes = preprocess_image(image_bytes)
 
     last_error = None
 
@@ -179,7 +227,7 @@ def extract_prescription(image_bytes: bytes, mime_type: str = "image/jpeg") -> P
                     {
                         "role": "user",
                         "content": USER_PROMPT,
-                        "images": [image_bytes],
+                        "images": [processed_image_bytes],
                     },
                 ],
                 options={
